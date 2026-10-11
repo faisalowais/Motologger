@@ -1,0 +1,6 @@
+{
+  "name": "MotoLedger - Motorcycle Fleet & Maintenance Telemetry",
+  "description": "Precision dark-mode telemetry, component lifecycle tracking, and maintenance ledger for motorcycle riders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
