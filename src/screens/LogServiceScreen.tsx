@@ -55,6 +55,11 @@ export const LogServiceScreen: React.FC<LogServiceScreenProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
+  // Gemini Bill Scanning State
+  const [isScanningBill, setIsScanningBill] = useState(false);
+  const [scanSuccessMessage, setScanSuccessMessage] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+
   // Calcs
   const currentLabour = isDiy ? 0 : labourCost;
   const netTotalCost = partsCost + currentLabour;
@@ -89,6 +94,120 @@ export const LogServiceScreen: React.FC<LogServiceScreenProps> = ({
       }
     };
     input.click();
+  };
+
+  // Process uploaded bill with Gemini
+  const handleUploadBillFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsScanningBill(true);
+    setScanError(null);
+    setScanSuccessMessage(null);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64Data = reader.result as string;
+        await scanBillWithApi(base64Data, file.type, file.name);
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setScanError(err?.message || 'Failed to read bill file');
+      setIsScanningBill(false);
+    }
+  };
+
+  // Test with sample invoice
+  const handleScanSampleInvoice = async () => {
+    setIsScanningBill(true);
+    setScanError(null);
+    setScanSuccessMessage(null);
+
+    const sampleUrl =
+      'https://lh3.googleusercontent.com/aida-public/AB6AXuABUn-Pk0H7ZSjjJ5N8prTYplL_wABmtSz_WLzm2LzXTfpKUbbRtVUok6L8VA-MxgRA6Pbgz6_Xl3eX9-wgIJOEJxweLSCx56HFTRQ3cVmfeVhqJRJOwEWJnURrgvAzjSkg0XtzPzAvwPaf0DLzhTH9vYMhmUsZhj9gRAOpQc5sAJykAD447FNxKEEZvHv7EAtFpBJ5aSOHFnpdRPxtzgtK4BOq7aVRmph89RL9_vGkjTE5p72kbagM';
+
+    try {
+      // Send sample receipt text and url to server
+      const res = await fetch('/api/gemini/parse-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          billText:
+            'Motul 7100 4T 10W-40 1.2L Engine Oil ₹1,150. OEM Hero Oil filter replacement ₹180. Workshop labour fee ₹250. Odometer: 12,213 km. Date: 12 Oct 2026. Oil drain plug torqued to 25 Nm.',
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success && json.data) {
+        applyParsedBillData(json.data, sampleUrl, 'Sample_Invoice_Receipt.jpg');
+      } else {
+        throw new Error(json.error || 'Gemini could not parse sample bill');
+      }
+    } catch (err: any) {
+      setScanError(err?.message || 'Error communicating with Gemini');
+    } finally {
+      setIsScanningBill(false);
+    }
+  };
+
+  const scanBillWithApi = async (base64Data: string, mimeType: string, fileName: string) => {
+    try {
+      const res = await fetch('/api/gemini/parse-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: base64Data,
+          mimeType,
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success && json.data) {
+        applyParsedBillData(json.data, base64Data, fileName);
+      } else {
+        throw new Error(json.error || 'Gemini could not parse invoice numbers');
+      }
+    } catch (err: any) {
+      setScanError(err?.message || 'Failed to scan bill');
+    } finally {
+      setIsScanningBill(false);
+    }
+  };
+
+  const applyParsedBillData = (data: any, previewUrl: string, fileName: string) => {
+    if (data.odometer) setOdometer(Number(data.odometer));
+    if (data.serviceDate) setServiceDate(data.serviceDate);
+    if (data.targetComponent) setTargetComponent(data.targetComponent);
+    if (data.action) setActionPerformed(data.action);
+    if (data.partsCost !== undefined) setPartsCost(Number(data.partsCost));
+    if (data.labourCost !== undefined) {
+      setLabourCost(Number(data.labourCost));
+      setIsDiy(Number(data.labourCost) === 0);
+    }
+    if (data.oilBrand) setOilBrand(data.oilBrand);
+    if (data.viscosity) setViscosity(data.viscosity);
+    if (data.fluidQty) setFluidQty(Number(data.fluidQty));
+    if (data.filterChanged !== undefined) setFilterChanged(Boolean(data.filterChanged));
+    if (data.strainerCleaned !== undefined) setStrainerCleaned(Boolean(data.strainerCleaned));
+    if (data.notes) setNotes(data.notes);
+
+    // Append invoice to attachments
+    setAttachments((prev) => [
+      {
+        id: `att-bill-${Date.now()}`,
+        name: fileName,
+        label: 'Scanned Bill',
+        type: 'image',
+        url: previewUrl,
+        size: 'Auto-scanned',
+      },
+      ...prev,
+    ]);
+
+    setScanSuccessMessage(
+      `Gemini successfully read numbers: ₹${((data.partsCost || 0) + (data.labourCost || 0)).toLocaleString('en-IN')} net cost, ${data.odometer || odometer} km, ${data.oilBrand || ''} ${data.viscosity || ''} auto-updated!`
+    );
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -154,6 +273,80 @@ export const LogServiceScreen: React.FC<LogServiceScreenProps> = ({
       </div>
 
       <form onSubmit={handleSave} className="flex flex-col gap-4 px-4">
+        {/* GEMINI BILL OCR AUTO-SCANNER BANNER */}
+        <section className="bg-gradient-to-r from-[#1f201f] to-[#252627] border border-[#ffbb13]/30 rounded-xl p-3 flex flex-col gap-2.5 shadow-md">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-[#ffbb13] flex items-center justify-center text-[#131313] font-bold">
+                <span className="material-symbols-outlined text-[18px]">document_scanner</span>
+              </div>
+              <div>
+                <h4 className="text-[13px] font-bold text-[#e4e2e0] flex items-center gap-1.5">
+                  Scan Maintenance Bill with Gemini
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#ffbb13]/20 text-[#ffbb13] uppercase font-mono font-semibold">
+                    AI Auto-Fill
+                  </span>
+                </h4>
+                <p className="text-[10px] text-[#8e9192]">
+                  Upload receipt to auto-extract date, odo, costs &amp; fluid specs
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Row */}
+          <div className="flex items-center gap-2">
+            <label className="flex-1 py-2 px-3 rounded-lg bg-[#2a2a29] hover:bg-[#353534] border border-[#444748] flex items-center justify-center gap-1.5 text-[11px] text-[#e4e2e0] font-semibold cursor-pointer transition-colors">
+              <span className="material-symbols-outlined text-[16px] text-[#ffbb13]">upload_file</span>
+              <span>{isScanningBill ? 'Scanning with Gemini...' : 'Upload Bill / Receipt'}</span>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                disabled={isScanningBill}
+                className="hidden"
+                onChange={handleUploadBillFile}
+              />
+            </label>
+
+            <button
+              type="button"
+              disabled={isScanningBill}
+              onClick={handleScanSampleInvoice}
+              className="py-2 px-3 rounded-lg bg-[#1b1c1b] hover:bg-[#202120] border border-[#353534] text-[11px] text-[#ffbb13] font-semibold cursor-pointer shrink-0 transition-colors"
+            >
+              Try Sample Receipt
+            </button>
+          </div>
+
+          {/* Loading indicator */}
+          {isScanningBill && (
+            <div className="flex items-center gap-2.5 py-1.5 px-2.5 bg-[#141516] rounded-lg border border-[#ffbb13]/40">
+              <span className="material-symbols-outlined text-[18px] text-[#ffbb13] animate-spin">
+                progress_activity
+              </span>
+              <span className="text-[11px] text-[#ffbb13] font-mono animate-pulse">
+                Gemini is reading invoice lines &amp; updating telemetry numbers...
+              </span>
+            </div>
+          )}
+
+          {/* Success Banner */}
+          {scanSuccessMessage && (
+            <div className="flex items-start gap-2 py-1.5 px-2.5 bg-[#142017] border border-[#4ade80]/40 rounded-lg text-[#4ade80] text-[11px]">
+              <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">check_circle</span>
+              <span className="flex-1 leading-snug">{scanSuccessMessage}</span>
+            </div>
+          )}
+
+          {/* Error Banner */}
+          {scanError && (
+            <div className="flex items-start gap-2 py-1.5 px-2.5 bg-[#251516] border border-[#ffb4ab]/40 rounded-lg text-[#ffb4ab] text-[11px]">
+              <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">error</span>
+              <span className="flex-1 leading-snug">{scanError}</span>
+            </div>
+          )}
+        </section>
+
         {/* SECTION 1: TELEMETRY & LOG DATE */}
         <section className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between px-1">
