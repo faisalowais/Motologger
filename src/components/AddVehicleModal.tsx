@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Vehicle, ServiceRecord, ComponentItem } from '../types';
+import { createDefaultMotorcycleComponents } from '../data';
 
 interface AddVehicleModalProps {
   isOpen: boolean;
@@ -138,52 +139,23 @@ export const AddVehicleModal: React.FC<AddVehicleModalProps> = ({ isOpen, onClos
 
     const id = `bike-${Date.now()}`;
 
-    // Components list: use extracted or default
-    const finalComponents: ComponentItem[] = extractedComponents && extractedComponents.length > 0
-      ? extractedComponents.map((c, i) => ({
-          ...c,
-          id: `${c.id || 'comp'}-${id}-${i}`,
-          category: (c.category as any) || 'Engine',
-          status: (c.status as any) || 'healthy',
-        }))
-      : [
-          {
-            id: `engine-oil-${id}`,
-            name: 'Engine Oil',
-            category: 'Engine',
-            spec: '10W-50',
-            intervalKm: 7500,
-            usedKm: 500,
-            remainingKm: 7000,
-            percentage: 7,
-            status: 'healthy',
-            icon: 'oil_barrel',
-            lastChangedDate: '01 Oct 2026',
-            lastChangedOdo: Math.max(0, odometer - 500),
-            nextDueDate: '01 Oct 2027',
-            nextDueOdo: odometer + 7000,
-            specDetail: 'Full Synthetic SAE 10W-50',
-            capacity: '1.7 Litres',
-          },
-          {
-            id: `chain-${id}`,
-            name: 'Drive Chain',
-            category: 'Chassis',
-            spec: 'Slack 25mm',
-            intervalKm: 700,
-            usedKm: 120,
-            remainingKm: 580,
-            percentage: 17,
-            status: 'healthy',
-            icon: 'link',
-            lastChangedDate: '01 Oct 2026',
-            lastChangedOdo: Math.max(0, odometer - 500),
-            nextDueDate: '15 Nov 2026',
-            nextDueOdo: odometer + 580,
-            specDetail: '520 O-Ring Chain',
-            capacity: 'Chain lube spray',
-          },
-        ];
+    // Components list: use extracted or full factory roster
+    const isLiquid =
+      category.toLowerCase().includes('liquid') ||
+      displacement.includes('390') ||
+      displacement.includes('450');
+
+    const defaultRoster = createDefaultMotorcycleComponents(id, name, odometer, isLiquid);
+
+    const finalComponents: ComponentItem[] =
+      extractedComponents && extractedComponents.length > 0
+        ? extractedComponents.map((c, i) => ({
+            ...c,
+            id: `${c.id || 'comp'}-${id}-${i}`,
+            category: (c.category as any) || 'Engine',
+            status: (c.status as any) || 'healthy',
+          }))
+        : defaultRoster;
 
     // Service history: use extracted or default
     const finalHistory: ServiceRecord[] = extractedHistory && extractedHistory.length > 0

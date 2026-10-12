@@ -14,6 +14,9 @@ import { AttachmentModal } from './components/AttachmentModal';
 import { AddVehicleModal } from './components/AddVehicleModal';
 import { LoadingScreen } from './components/LoadingScreen';
 import { UploadBikePhotoModal } from './components/UploadBikePhotoModal';
+import { DeleteVehicleModal } from './components/DeleteVehicleModal';
+import { UpdateOdometerModal } from './components/UpdateOdometerModal';
+import { recalculateVehicleTelemetry } from './utils/telemetry';
 
 export default function App() {
   // Loading screen state
@@ -39,6 +42,8 @@ export default function App() {
   const [attachmentPreview, setAttachmentPreview] = useState<{ url: string; name: string } | null>(null);
   const [isAddVehicleOpen, setIsAddVehicleOpen] = useState(false);
   const [isUploadPhotoOpen, setIsUploadPhotoOpen] = useState(false);
+  const [isDeleteVehicleOpen, setIsDeleteVehicleOpen] = useState(false);
+  const [isUpdateOdometerOpen, setIsUpdateOdometerOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   // Sync to localStorage
@@ -54,6 +59,30 @@ export default function App() {
   const currentComponent =
     currentVehicle.components.find((c) => c.id === selectedComponentId) ||
     currentVehicle.components[0];
+
+  // Update odometer and dynamically recalculate all telemetry & wear percentages
+  const handleUpdateOdometer = (newKm: number) => {
+    setVehicles((prev) =>
+      prev.map((v) => {
+        if (v.id === selectedVehicleId) {
+          return recalculateVehicleTelemetry(v, newKm);
+        }
+        return v;
+      })
+    );
+  };
+
+  // Delete vehicle from garage
+  const handleDeleteVehicle = (vehicleId: string) => {
+    setVehicles((prev) => {
+      const remaining = prev.filter((v) => v.id !== vehicleId);
+      if (selectedVehicleId === vehicleId && remaining.length > 0) {
+        setSelectedVehicleId(remaining[0].id);
+      }
+      return remaining;
+    });
+    setIsDeleteVehicleOpen(false);
+  };
 
   // Photo update handler
   const handleSaveVehiclePhoto = (photoUrl?: string) => {
@@ -235,6 +264,9 @@ export default function App() {
                 onNavigateToComponent={handleSelectComponent}
                 onAddVehicle={() => setIsAddVehicleOpen(true)}
                 onUploadPhoto={() => setIsUploadPhotoOpen(true)}
+                onOpenDeleteVehicle={() => setIsDeleteVehicleOpen(true)}
+                onOpenUpdateOdometer={() => setIsUpdateOdometerOpen(true)}
+                onUpdateOdometer={handleUpdateOdometer}
               />
             )}
 
@@ -245,6 +277,8 @@ export default function App() {
                 onSelectVehicle={setSelectedVehicleId}
                 onSelectComponent={handleSelectComponent}
                 onLogMaintenance={handleOpenLogService}
+                onOpenUpdateOdometer={() => setIsUpdateOdometerOpen(true)}
+                onUpdateOdometer={handleUpdateOdometer}
               />
             )}
 
@@ -263,10 +297,13 @@ export default function App() {
             {activeTab === 'more' && (
               <MoreScreen
                 vehicle={currentVehicle}
+                vehicles={vehicles}
                 onAddVehicle={() => setIsAddVehicleOpen(true)}
                 onResetData={handleResetData}
                 onExportLedger={handleExportLedger}
                 onShowLoadingScreen={() => setIsLoading(true)}
+                onOpenDeleteVehicle={() => setIsDeleteVehicleOpen(true)}
+                onDeleteVehicle={handleDeleteVehicle}
               />
             )}
           </>
@@ -300,6 +337,23 @@ export default function App() {
         currentPhotoUrl={currentVehicle.photoUrl}
         onClose={() => setIsUploadPhotoOpen(false)}
         onSavePhoto={handleSaveVehiclePhoto}
+      />
+
+      {/* Delete Motorcycle Confirmation Modal */}
+      <DeleteVehicleModal
+        isOpen={isDeleteVehicleOpen}
+        vehicle={currentVehicle}
+        canDelete={vehicles.length > 1}
+        onClose={() => setIsDeleteVehicleOpen(false)}
+        onConfirmDelete={handleDeleteVehicle}
+      />
+
+      {/* Update Odometer Modal (Real-time recalculation of line items) */}
+      <UpdateOdometerModal
+        isOpen={isUpdateOdometerOpen}
+        vehicle={currentVehicle}
+        onClose={() => setIsUpdateOdometerOpen(false)}
+        onUpdateOdometer={handleUpdateOdometer}
       />
 
       {/* Attachment / Receipt Full View Modal */}
